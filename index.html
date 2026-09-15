@@ -177,6 +177,13 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
+            transition: border-color 0.2s, background-color 0.2s;
+        }
+
+        /* Destaque visual para a rádio que está tocando no momento */
+        .station-card.playing {
+            border-color: var(--accent-blue);
+            background-color: #162030;
         }
 
         .station-info {
@@ -227,24 +234,17 @@
         .btn-play:hover {
             background: var(--hover-blue);
         }
+
+        .hotkey-hint {
+            font-size: 11px;
+            color: #8b949e;
+            margin-left: auto;
+            margin-right: 10px;
+        }
     </style>
 </head>
 
 <body>
-
-    <!-- Modal de Anúncio Estilo Supercine (Monetização) -->
-    <div id="adModal"
-        style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:9999; justify-content:center; align-items:center; flex-direction:column;">
-        <div
-            style="background:#161b22; padding:30px; border-radius:10px; border:1px solid #1572ff; text-align:center; width:380px;">
-            <h3 style="color:white; margin-bottom:15px;">Patrocínio / Anúncio</h3>
-            <div id="adBannerContent"
-                style="background:#0d1117; height:150px; display:flex; align-items:center; justify-content:center; color:#c9d1d9; border-radius:6px; margin-bottom:15px; font-weight:bold; font-size:13px; text-align:center; padding: 10px;">
-                Espaço reservado para código de anúncios (AdSense/Adsterra)
-            </div>
-            <p id="adTimer" style="font-size:14px; color:#1572ff; font-weight:bold;">Aguarde 10 segundos...</p>
-        </div>
-    </div>
 
     <div class="sidebar">
         <div class="sidebar-header">≡ Menu</div>
@@ -254,11 +254,12 @@
 
     <div class="main-content">
         <input type="text" id="searchInput" class="search-bar"
-            placeholder="🔍 Buscar rádio por nome ou gênero (ex: Rock, Brasil, Jazz)..." />
+            placeholder="🔍 Buscar rádio por nome ou gênero (ex: Rock, Brasil, Jazz)... [Pressione ESC para limpar]" />
 
         <div class="control-bar">
             <button class="btn-default" onclick="carregarPadroes()">🌐 Padrão</button>
             <button class="btn-stop" onclick="pararPlayer()">⏹ Parar</button>
+            <span class="hotkey-hint">Dica: [Espaço] para Pausar/Tocar</span>
             <div class="status-text" id="statusLabel">Aguardando sintonia...</div>
         </div>
 
@@ -304,36 +305,11 @@
         const favoritesContainer = document.getElementById("favoritesContainer");
         const searchInput = document.getElementById("searchInput");
 
-        let urlPendente = "";
         let nomePendente = "";
+        let urlPendente = "";
 
-        // Gerador de Som Eletrônico (Web Audio API)
+        // Gerador de Som Eletrônico (Web Audio API) para feedback de favoritos/ações
         function tocarSomCoracao() {
-            try {
-                const ctx = new (window.AudioContext || window.webkitAudioContext)();
-                let osc1 = ctx.createOscillator();
-                let gain1 = ctx.createGain();
-                osc1.type = 'sine';
-                osc1.frequency.value = 735;
-                osc1.connect(gain1);
-                gain1.connect(ctx.destination);
-                osc1.start();
-                setTimeout(() => osc1.stop(), 80);
-
-                setTimeout(() => {
-                    let osc2 = ctx.createOscillator();
-                    let gain2 = ctx.createGain();
-                    osc2.type = 'sine';
-                    osc2.frequency.value = 1215;
-                    osc2.connect(gain2);
-                    gain2.connect(ctx.destination);
-                    osc2.start();
-                    setTimeout(() => osc2.stop(), 100);
-                }, 90);
-            } catch (e) { }
-        }
-
-        function tocarSomTroca() {
             try {
                 const ctx = new (window.AudioContext || window.webkitAudioContext)();
                 let osc1 = ctx.createOscillator();
@@ -390,8 +366,12 @@
             entries.forEach(([nome, url]) => {
                 const card = document.createElement("div");
                 card.className = "station-card";
+                card.dataset.stationName = nome;
 
                 const isFav = favoritos.hasOwnProperty(nome);
+                if (nomePendente === nome && !audioPlayer.paused) {
+                    card.classList.add("playing");
+                }
 
                 card.innerHTML = `
                     <div class="station-info">
@@ -429,48 +409,81 @@
             }
         }
 
+        // Toca instantaneamente sem o modal de atraso
         function mudarEstacao(nome, url) {
-            tocarSomTroca();
-            urlPendente = url;
             nomePendente = nome;
-
-            const modal = document.getElementById("adModal");
-            const timerText = document.getElementById("adTimer");
-            modal.style.display = "flex";
-
-            let segundosRestantes = 10;
-            timerText.textContent = `Aguarde ${segundosRestantes} segundos...`;
-
-            const intervalo = setInterval(() => {
-                segundosRestantes--;
-                timerText.textContent = `Aguarde ${segundosRestantes} segundos...`;
-
-                if (segundosRestantes <= 0) {
-                    clearInterval(intervalo);
-                    modal.style.display = "none";
-                    executarPlayerReal(nomePendente, urlPendente);
-                }
-            }, 1000);
+            urlPendente = url;
+            localStorage.setItem("ultima_radio_tocada", JSON.stringify({ nome, url }));
+            executarPlayerReal(nome, url);
         }
 
         function executarPlayerReal(nome, url) {
-            statusLabel.textContent = `Tocando: ${nome}`;
+            statusLabel.textContent = `Conectando a ${nome}...`;
             audioPlayer.src = url;
             audioPlayer.play().catch(err => {
                 statusLabel.textContent = "Erro ao reproduzir stream.";
                 console.error(err);
             });
+
+            // Atualiza destaque visual nas cartas da lista
+            document.querySelectorAll('.station-card').forEach(card => {
+                card.classList.remove('playing');
+                if (card.dataset.stationName === nome) {
+                    card.classList.add('playing');
+                }
+            });
         }
 
         function pararPlayer() {
             audioPlayer.pause();
-            audioPlayer.src = ""; // Corta o fluxo de dados da rede imediatamente
+            audioPlayer.src = ""; 
             statusLabel.textContent = "Reprodução pausada.";
+            document.querySelectorAll('.station-card').forEach(card => card.classList.remove('playing'));
         }
 
-        searchInput.addEventListener("keypress", function (e) {
+        // Eventos nativos de áudio para Feedback de Carregamento (Buffering)
+        audioPlayer.addEventListener('waiting', () => {
+            if (nomePendente) {
+                statusLabel.textContent = `Bufferizando ${nomePendente}...`;
+            }
+        });
+
+        audioPlayer.addEventListener('playing', () => {
+            if (nomePendente) {
+                statusLabel.textContent = `Tocando: ${nomePendente}`;
+            }
+        });
+
+        // Atalhos de Teclado globais (Espaço para Tocar/Pausar)
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'Space' && document.activeElement.tagName !== 'INPUT') {
+                e.preventDefault();
+                if (audioPlayer.paused) {
+                    if (audioPlayer.src) {
+                        audioPlayer.play();
+                        statusLabel.textContent = `Tocando: ${nomePendente || 'Rádio'}`;
+                    } else {
+                        // Se não houver src, toca a última ou a primeira padrão
+                        const ultima = JSON.parse(localStorage.getItem("ultima_radio_tocada"));
+                        if (ultima) {
+                            mudarEstacao(ultima.nome, ultima.url);
+                        } else {
+                            mudarEstacao("Rádio Paradise (Rock/Pop)", RADIOS_PADRAO["Rádio Paradise (Rock/Pop)"]);
+                        }
+                    }
+                } else {
+                    pararPlayer();
+                }
+            }
+        });
+
+        // Atalho ESC para limpar a busca rapidamente
+        searchInput.addEventListener("keydown", function (e) {
             if (e.key === "Enter") {
                 buscarApi();
+            } else if (e.key === "Escape") {
+                searchInput.value = "";
+                carregarPadroes();
             }
         });
 
@@ -493,7 +506,6 @@
                 const dataNome = await resNome.json();
                 const dataTag = await resTag.json();
 
-                // Combina os resultados e remove duplicatas reais com base na url_resolved
                 const combinadas = [...dataNome, ...dataTag];
                 const unicas = combinadas.filter((r, index, self) => {
                     const link = r.url_resolved;
@@ -519,6 +531,7 @@
             }
         }
 
+        // Inicialização
         carregarPadroes();
         atualizarPainelFavoritos();
     </script>
