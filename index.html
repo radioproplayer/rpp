@@ -68,19 +68,48 @@
             border: none;
             color: var(--text-main);
             text-align: left;
-            padding: 10px;
-            border-radius: 6px;
+            padding: 4px 0;
+            border-radius: 4px;
             cursor: pointer;
             font-size: 13px;
             font-weight: bold;
             display: flex;
             align-items: center;
             gap: 8px;
-            transition: background 0.2s;
+            transition: color 0.2s;
         }
 
         .fav-btn:hover {
-            background-color: var(--border-color);
+            color: var(--hover-blue);
+        }
+
+        /* Card individual para cada favorito na sidebar */
+        .fav-item-card {
+            background-color: var(--bg-main);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 8px 10px;
+            margin-bottom: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .btn-remove-fav {
+            background: #d32f2f;
+            color: white;
+            border: none;
+            padding: 4px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 10px;
+            font-weight: bold;
+            align-self: flex-end;
+            transition: background 0.2s;
+        }
+
+        .btn-remove-fav:hover {
+            background: #f44336;
         }
 
         /* Main Area */
@@ -259,7 +288,7 @@
         <div class="control-bar">
             <button class="btn-default" onclick="carregarPadroes()">🌐 Padrão</button>
             <button class="btn-stop" onclick="pararPlayer()">⏹ Parar</button>
-            <span class="hotkey-hint">Dica: [Espaço] para Pausar/Tocar</span>
+            <span class="hotkey-hint">Dica: [Espaço] para Pausar/Retomar</span>
             <div class="status-text" id="statusLabel">Aguardando sintonia...</div>
         </div>
 
@@ -307,6 +336,7 @@
 
         let nomePendente = "";
         let urlPendente = "";
+        let estaTocandoAtivamente = false;
 
         // Gerador de Som Eletrônico (Web Audio API) para feedback de favoritos/ações
         function tocarSomCoracao() {
@@ -346,12 +376,34 @@
                 return;
             }
             entries.forEach(([nome, url]) => {
-                const btn = document.createElement("button");
-                btn.className = "fav-btn";
-                btn.innerHTML = `▶ ${nome.substring(0, 24)}`;
-                btn.onclick = () => mudarEstacao(nome, url);
-                favoritesContainer.appendChild(btn);
+                const itemCard = document.createElement("div");
+                itemCard.className = "fav-item-card";
+                itemCard.innerHTML = `
+                    <button class="fav-btn" onclick="mudarEstacao('${nome.replace(/'/g, "\\'")}', '${url}')">
+                        ▶ ${nome.substring(0, 24)}
+                    </button>
+                    <button class="btn-remove-fav" onclick="removerFavoritoSidebar('${nome.replace(/'/g, "\\'")}')">
+                        🗑️ Remover
+                    </button>
+                `;
+                favoritesContainer.appendChild(itemCard);
             });
+        }
+
+        function removerFavoritoSidebar(nome) {
+            tocarSomCoracao(); // Dispara o som eletrônico
+            if (favoritos.hasOwnProperty(nome)) {
+                delete favoritos[nome];
+            }
+            salvarFavoritosDisco();
+            atualizarPainelFavoritos();
+
+            // Atualiza também a lista principal de estações
+            if (searchInput.value.trim() !== "") {
+                buscarApi();
+            } else {
+                carregarLista(RADIOS_PADRAO);
+            }
         }
 
         function carregarLista(dicionarioRadios) {
@@ -369,7 +421,7 @@
                 card.dataset.stationName = nome;
 
                 const isFav = favoritos.hasOwnProperty(nome);
-                if (nomePendente === nome && !audioPlayer.paused) {
+                if (nomePendente === nome && estaTocandoAtivamente) {
                     card.classList.add("playing");
                 }
 
@@ -409,10 +461,10 @@
             }
         }
 
-        // Toca instantaneamente sem o modal de atraso
         function mudarEstacao(nome, url) {
             nomePendente = nome;
             urlPendente = url;
+            estaTocandoAtivamente = true;
             localStorage.setItem("ultima_radio_tocada", JSON.stringify({ nome, url }));
             executarPlayerReal(nome, url);
         }
@@ -437,42 +489,41 @@
         function pararPlayer() {
             audioPlayer.pause();
             audioPlayer.src = ""; 
+            estaTocandoAtivamente = false;
             statusLabel.textContent = "Reprodução pausada.";
             document.querySelectorAll('.station-card').forEach(card => card.classList.remove('playing'));
         }
 
         // Eventos nativos de áudio para Feedback de Carregamento (Buffering)
         audioPlayer.addEventListener('waiting', () => {
-            if (nomePendente) {
+            if (nomePendente && estaTocandoAtivamente) {
                 statusLabel.textContent = `Bufferizando ${nomePendente}...`;
             }
         });
 
         audioPlayer.addEventListener('playing', () => {
-            if (nomePendente) {
+            if (nomePendente && estaTocandoAtivamente) {
                 statusLabel.textContent = `Tocando: ${nomePendente}`;
             }
         });
 
-        // Atalhos de Teclado globais (Espaço para Tocar/Pausar)
+        // Atalhos de Teclado globais (Espaço para Tocar/Pausar com alternância correta)
         document.addEventListener('keydown', (e) => {
             if (e.code === 'Space' && document.activeElement.tagName !== 'INPUT') {
                 e.preventDefault();
-                if (audioPlayer.paused) {
-                    if (audioPlayer.src) {
-                        audioPlayer.play();
-                        statusLabel.textContent = `Tocando: ${nomePendente || 'Rádio'}`;
-                    } else {
-                        // Se não houver src, toca a última ou a primeira padrão
-                        const ultima = JSON.parse(localStorage.getItem("ultima_radio_tocada"));
-                        if (ultima) {
-                            mudarEstacao(ultima.nome, ultima.url);
-                        } else {
-                            mudarEstacao("Rádio Paradise (Rock/Pop)", RADIOS_PADRAO["Rádio Paradise (Rock/Pop)"]);
-                        }
-                    }
-                } else {
+
+                if (estaTocandoAtivamente) {
                     pararPlayer();
+                } else {
+                    // Retoma a última rádio ou a primeira padrão
+                    const ultima = JSON.parse(localStorage.getItem("ultima_radio_tocada"));
+                    if (ultima && ultima.url) {
+                        mudarEstacao(ultima.nome, ultima.url);
+                    } else if (urlPendente && nomePendente) {
+                        mudarEstacao(nomePendente, urlPendente);
+                    } else {
+                        mudarEstacao("Rádio Paradise (Rock/Pop)", RADIOS_PADRAO["Rádio Paradise (Rock/Pop)"]);
+                    }
                 }
             }
         });
