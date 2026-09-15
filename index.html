@@ -115,6 +115,7 @@
             padding: 0 15px;
             margin-bottom: 15px;
             border: 1px solid var(--border-color);
+            gap: 10px;
         }
 
         .btn-default {
@@ -126,16 +127,36 @@
             cursor: pointer;
             font-weight: bold;
             font-size: 12px;
+            white-space: nowrap;
         }
 
         .btn-default:hover {
             background: var(--hover-blue);
         }
 
+        .btn-stop {
+            background: #d32f2f;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 12px;
+            white-space: nowrap;
+        }
+
+        .btn-stop:hover {
+            background: #f44336;
+        }
+
         .status-text {
             font-size: 13px;
             font-weight: bold;
             color: var(--accent-blue);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
 
         /* Station List */
@@ -233,10 +254,11 @@
 
     <div class="main-content">
         <input type="text" id="searchInput" class="search-bar"
-            placeholder="🔍 Buscar rádio mundial (pressione Enter)..." />
+            placeholder="🔍 Buscar rádio por nome ou gênero (ex: Rock, Brasil, Jazz)..." />
 
         <div class="control-bar">
             <button class="btn-default" onclick="carregarPadroes()">🌐 Padrão</button>
+            <button class="btn-stop" onclick="pararPlayer()">⏹ Parar</button>
             <div class="status-text" id="statusLabel">Aguardando sintonia...</div>
         </div>
 
@@ -285,7 +307,7 @@
         let urlPendente = "";
         let nomePendente = "";
 
-        // Gerador de Som Eletrônico (Web Audio API - Substitui o winsound)
+        // Gerador de Som Eletrônico (Web Audio API)
         function tocarSomCoracao() {
             try {
                 const ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -387,6 +409,7 @@
         function carregarPadroes() {
             searchInput.value = "";
             carregarLista(RADIOS_PADRAO);
+            statusLabel.textContent = "Exibindo estações padrão.";
         }
 
         function toggleFavorito(nome, url) {
@@ -439,12 +462,19 @@
             });
         }
 
+        function pararPlayer() {
+            audioPlayer.pause();
+            audioPlayer.src = ""; // Corta o fluxo de dados da rede imediatamente
+            statusLabel.textContent = "Reprodução pausada.";
+        }
+
         searchInput.addEventListener("keypress", function (e) {
             if (e.key === "Enter") {
                 buscarApi();
             }
         });
 
+        // Busca Inteligente Avançada (Nome + Gênero/Tag em paralelo via Promise.all)
         async function buscarApi() {
             const termo = searchInput.value.trim();
             if (!termo) {
@@ -455,20 +485,34 @@
             statusLabel.textContent = `Pesquisando '${termo}' no banco de dados mundial...`;
 
             try {
-                const response = await fetch(`https://de1.api.radio-browser.info/json/stations/byname/${encodeURIComponent(termo)}?limit=15`);
-                const data = await response.json();
+                const [resNome, resTag] = await Promise.all([
+                    fetch(`https://de1.api.radio-browser.info/json/stations/byname/${encodeURIComponent(termo)}?limit=20`),
+                    fetch(`https://de1.api.radio-browser.info/json/stations/bytag/${encodeURIComponent(termo)}?limit=20`)
+                ]);
+
+                const dataNome = await resNome.json();
+                const dataTag = await resTag.json();
+
+                // Combina os resultados e remove duplicatas reais com base na url_resolved
+                const combinadas = [...dataNome, ...dataTag];
+                const unicas = combinadas.filter((r, index, self) => {
+                    const link = r.url_resolved;
+                    return link && self.findIndex(s => s.url_resolved === link) === index;
+                });
 
                 let novasRadios = {};
-                data.forEach(r => {
+                unicas.forEach(r => {
                     let nome = (r.name || "Desconhecida").trim();
-                    let link = r.url_resolved || "";
+                    let link = r.url_resolved;
                     if (link) {
                         novasRadios[nome.substring(0, 30)] = link;
                     }
                 });
 
                 carregarLista(novasRadios);
-                statusLabel.textContent = Object.keys(novasRadios).length > 0 ? "Resultados carregados." : "Nenhuma estação encontrada.";
+                statusLabel.textContent = Object.keys(novasRadios).length > 0 
+                    ? `${Object.keys(novasRadios).length} estações encontradas.` 
+                    : "Nenhuma estação encontrada.";
             } catch (err) {
                 statusLabel.textContent = "Erro de conexão com a API.";
                 console.error(err);
